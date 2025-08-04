@@ -1,2 +1,2 @@
-# Continuous_Q-Learning
+# Continuous Q-Learning
 
