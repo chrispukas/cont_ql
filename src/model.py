@@ -39,16 +39,19 @@ class ReplayBuffer:
 # -- PARAMETERS --
 # ----------------
 
-max_epochs = 5
-max_episodes = 200
+max_epochs = 50000
+max_episodes = 4000
 
-training_batch_size = 20
-learning_rate = 0.001
+training_batch_size = 200
+learning_rate = 0.02
+discount_factor = 0.99
+exploration_probability = 0.5
+exploration_discount = 0.9
 
 starting_pos = (4, 4)
 target_pos = (0, 0)
 env_dim = (5, 5)
-env_obs = [((1, 1), -99), ((2, 1), -99), ((1, 2), -99), ((2, 2), -99)]
+env_obs = [((1, 1), -9999), ((2, 1), -9999), ((1, 2), -9999), ((2, 2), -9999)]
 
 goal_radius = 0.2
 
@@ -59,7 +62,7 @@ env.display()
 # Tuple in the form: (state: tuple (x, y), action: tuple (dx, dy), reward: float, next_state: tuple (x + dx, y + dy), result: bool)
 replay_buffer = ReplayBuffer()
 
-device = torch.accelerator.current_accelerator().type if torch.accelerator.is_available() else "cpu"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Currently using {device} device")
 
 # Initialize agents, assign to device
@@ -67,7 +70,7 @@ actor = ActorNetwork().to(device)
 critic = CriticNetwork().to(device)
 
 actor.optimizer = torch.optim.Adam(actor.parameters(), lr=learning_rate)
-critic.optimiser = torch.optim.Adam(actor.parameters(), lr=learning_rate)
+critic.optimizer = torch.optim.Adam(critic.parameters(), lr=learning_rate)
 
 # Training loop
 for epoch in range(max_epochs):
@@ -80,18 +83,37 @@ for epoch in range(max_epochs):
         # -- Actor Actions --
         # -------------------
 
-        action = actor(pos)
+        # Exploratory ->
+
+        exploration_roll = random.random()
+        explore = exploration_roll < exploration_probability
+
+        if explore:
+            exploration_action = (random.uniform(-1, 1), random.uniform(-1, 1))
+            exploration_tensor = torch.tensor(exploration_action, dtype=torch.float).to(device)
+
+            action = exploration_tensor
+
+            print(f" # epoch:eps ({epoch}:{episode}) -> Rolled {exploration_roll}, taking random action: {exploration_action}")
+        else:
+            action = actor(pos)
+
+        exploration_probability *= exploration_discount
         new_pos = pos + action
 
         np_new_pos = new_pos.detach().cpu().numpy()
         distance = env.get_distance_to_goal(np_new_pos)
 
         distance_reward = -distance
-        location_reward = env.get_reward(np_new_pos)
-        total_reward = distance_reward + location_reward
-        outcome = distance < goal_radius
+        location_reward, in_bounds = env.get_reward(np_new_pos)
+        if not in_bounds:
+            print(f" # epoch:eps ({epoch}:{episode}) -> not in bounds!!, tried to move to {new_pos.tolist()}")
+            break
 
-        print(f" # epoch:eps ({epoch}:{episode}) -> outcome: {outcome}, position: {pos.tolist()}, action: {action.tolist()}, reward: {total_reward}, new_position: {new_pos.tolist()}")
+        total_reward = distance_reward + location_reward
+        outcome = in_bounds if not in_bounds else distance < goal_radius
+
+        print(f" # epoch:eps ({epoch}:{episode}) -> outcome: {outcome}, position: {pos.tolist()}, action: {action.tolist()}, reward: {total_reward}, new_position: {new_pos.tolist()}, outcome: {outcome}")
 
         replay_buffer.push((
             pos.detach().cpu().numpy(),
@@ -101,13 +123,13 @@ for epoch in range(max_epochs):
             outcome,
         ))
 
-        pos.copy_(new_pos)
+        pos = new_pos.detach()
 
         # ---------------------
         # -- Critic Training --
         # ---------------------
 
-        if episode % training_batch_size != 0 or replay_buffer.len() < training_batch_size:
+        if episode % 1 != 0 or replay_buffer.len() < training_batch_size:
             continue
         states, actions, rewards, new_states, results = replay_buffer.sample(training_batch_size)
         print(f" # epoch:eps ({epoch}:{episode}) -> Training critic on batch size of {training_batch_size}")
@@ -118,14 +140,35 @@ for epoch in range(max_epochs):
         new_states = new_states.to(device)
         results = results.to(device)
 
-        predicted_q_values = critic(states, actions)
-
+        critic_predicted_buffer = torch.cat([states, actions], dim=1)
+        critic_predicted_q_values = critic(critic_predicted_buffer)
         with torch.no_grad():
-            target_actions = actor(new_states)
-            expected_q_values = critic(states, target_actions)
+            critic_target_actions = actor(new_states)
+            critic_target_buffer = torch.cat([new_states, critic_target_actions], dim=1)
+            critic_target_q_values = critic(critic_target_buffer)
 
-        loss = F.mse_loss(predicted_q_values, expected_q_values)
+            # q_expected = r + γ * Q (s', a')
+            expected_q_values = rewards + (1 - results.float()) * discount_factor * critic_target_q_values
+
+        loss = F.mse_loss(critic_predicted_q_values, expected_q_values)
 
         critic.optimizer.zero_grad()
         loss.backward()
         critic.optimizer.step()
+
+        # --------------------
+        # -- Actor Training --
+        # --------------------
+
+        if episode % 5 != 0 or replay_buffer.len() < training_batch_size:
+            continue
+        actor_predicted_actions = actor(states)
+
+        actor_actions_buffer = torch.cat([states, actor_predicted_actions], dim=1)
+        actor_predicted_q_values = critic(actor_actions_buffer)
+        
+        actor_loss = -torch.mean(actor_predicted_q_values)
+
+        actor.optimizer.zero_grad()
+        actor_loss.backward()
+        actor.optimizer.step()

@@ -25,8 +25,8 @@ class Environment:
     def get_reward(self, pos):
         x, y = np.round(pos).astype(int)
         if not self.check_if_in_bounds((x, y)):
-            return -9999
-        return self.env[y, x]
+            return -99999, False
+        return self.env[y, x], True if self.env[y, x] >= 0 else False
 
     def get_distance_to_goal(self, pos):
         x, y = pos
