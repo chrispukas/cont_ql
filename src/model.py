@@ -166,7 +166,7 @@ for epoch in range(max_epochs):
 
         actor_actions_buffer = torch.cat([states, actor_predicted_actions], dim=1)
         actor_predicted_q_values = critic(actor_actions_buffer)
-        
+
         actor_loss = -torch.mean(actor_predicted_q_values)
 
         actor.optimizer.zero_grad()
