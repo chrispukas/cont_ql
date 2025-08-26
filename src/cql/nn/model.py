@@ -20,29 +20,30 @@ def run_sim(environment: env.Environment,
             training_batch_size: int,
             critic_training_step: int,
             actor_training_step: int) -> list[tuple[float, float]]:
-    # Tuple in the form: (state: tuple (x, y), action: tuple (dx, dy), reward: float, next_state: tuple (x + dx, y + dy), result: bool)
-    replay_buffer = buffer.ReplayBuffer()
+      # Tuple in the form: (state: tuple (x, y), action: tuple (dx, dy), reward: float, next_state: tuple (x + dx, y + dy), result: bool)
+      replay_buffer = buffer.ReplayBuffer()
 
-    # Initialize agents and dock to device
-    actor = networks.ActorNetwork(device=device).to(device)
-    critic = networks.CriticNetwork(device=device, layer_width=training_batch_size).to(device)
+      # Initialize agents and dock to device
+      actor = networks.ActorNetwork(device=device).to(device)
+      critic = networks.CriticNetwork(device=device, layer_width=training_batch_size).to(device)
 
-    actor.optimizer = torch.optim.Adam(actor.parameters(), lr=learning_rate)
-    critic.optimizer = torch.optim.Adam(critic.parameters(), lr=learning_rate)
-
-    for iter in range(max_epochs):
-        print(f"Current Epoch: {iter}")
-        epoch(replay_buffer=replay_buffer, 
-              actor=actor, 
-              critic=critic, 
-              environment=environment,
-              weights=weights,
-              discount_factor=discount_factor,
-              starting_position=environment.start_pos,
-              max_episodes=max_episodes,
-              critic_training_step=critic_training_step,
-              actor_training_step=actor_training_step,
-              training_batch_size=training_batch_size)
+      actor.optimizer = torch.optim.Adam(actor.parameters(), lr=learning_rate)
+      critic.optimizer = torch.optim.Adam(critic.parameters(), lr=learning_rate)
+      
+      for iter in range(max_epochs):
+            print(f"Current Epoch: {iter}")
+            epoch(replay_buffer=replay_buffer, 
+                  actor=actor, 
+                  critic=critic, 
+                  environment=environment,
+                  weights=weights,
+                  discount_factor=discount_factor,
+                  starting_position=environment.start_pos,
+                  max_episodes=max_episodes,
+                  critic_training_step=critic_training_step,
+                  actor_training_step=actor_training_step,
+                  training_batch_size=training_batch_size)
+      print("Sim Complete")
 
 def epoch(replay_buffer: buffer.ReplayBuffer, 
           actor: networks.ActorNetwork, 
@@ -55,25 +56,28 @@ def epoch(replay_buffer: buffer.ReplayBuffer,
           critic_training_step: int,
           actor_training_step: int,
           training_batch_size: int) -> None:
-    position = starting_position
+      position = starting_position
+      print(f"Starting Position: {position}")
 
-    # Run the actor, load experiences into the replay buffer
-    for ep in range(max_episodes + 1):
-         position, in_bounds = episode(replay_buffer=replay_buffer,
-                 actor=actor,
-                 critic=critic,
-                 environment=environment,
-                 position=position,
-                 weights=weights,
-                 discount_factor=discount_factor,
-                 curr_episode=ep,
-                 critic_training_step=critic_training_step,
-                 actor_training_step=actor_training_step,
-                 training_batch_size=training_batch_size)
-         if in_bounds is False:
-              print(f"Entered invalid position, breaking epoch {ep}.")
-              break
-
+      # Run the actor, load experiences into the replay buffer
+      for ep in range(max_episodes + 1):
+            new_position, in_bounds = episode(replay_buffer=replay_buffer,
+                  actor=actor,
+                  critic=critic,
+                  environment=environment,
+                  position=position,
+                  weights=weights,
+                  discount_factor=discount_factor,
+                  curr_episode=ep,
+                  critic_training_step=critic_training_step,
+                  actor_training_step=actor_training_step,
+                  training_batch_size=training_batch_size)
+            position = new_position
+            in_bounds_bool = in_bounds.detach().item()
+            if in_bounds_bool is False:
+                  print(f"Entered invalid position, breaking epoch {ep}.")
+                  break
+      print("exited loop")
 
 
 # For each episode ->
@@ -96,6 +100,7 @@ def episode(replay_buffer: buffer.ReplayBuffer,
             new_position = torch.add(predicted_action, position)
             reward = pol.aggregate_rewards(environment, new_position, weights=weights).unsqueeze(0)
             in_bounds = environment.check_if_in_bounds(new_position)
+            print(in_bounds)
 
             print(f"{position} -> {new_position}, action: {predicted_action}")
 
@@ -107,13 +112,13 @@ def episode(replay_buffer: buffer.ReplayBuffer,
                                in_bounds.detach(),)
             position = new_position
 
-            if curr_episode % critic_training_step == 0 and curr_episode > 0:
+            if curr_episode % critic_training_step == 0 and curr_episode > 0 and len(replay_buffer) >= training_batch_size:
                 sample = replay_buffer.sample(training_batch_size)
                 if sample is None:
                     return position
                 train.train_critic(sample, actor, critic, discount_factor)
 
-            if curr_episode % actor_training_step == 0 and curr_episode > 0:
+            if curr_episode % actor_training_step == 0 and curr_episode > 0 and len(replay_buffer) >= training_batch_size:
                  sample = replay_buffer.sample(training_batch_size)
                  if sample is None:
                      return position
