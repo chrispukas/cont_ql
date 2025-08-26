@@ -21,7 +21,7 @@ def run_sim(environment: env.Environment,
             critic_training_step: int,
             actor_training_step: int) -> list[tuple[float, float]]:
       # Tuple in the form: (state: tuple (x, y), action: tuple (dx, dy), reward: float, next_state: tuple (x + dx, y + dy), result: bool)
-      replay_buffer = buffer.ReplayBuffer()
+      replay_buffer = buffer.ReplayBuffer(device=device)
 
       # Initialize agents and dock to device
       actor = networks.ActorNetwork(device=device).to(device)
@@ -30,9 +30,11 @@ def run_sim(environment: env.Environment,
       actor.optimizer = torch.optim.Adam(actor.parameters(), lr=learning_rate)
       critic.optimizer = torch.optim.Adam(critic.parameters(), lr=learning_rate)
       
+      paths = []
+
       for iter in range(max_epochs):
             print(f"Current Epoch: {iter}")
-            epoch(replay_buffer=replay_buffer, 
+            path = epoch(replay_buffer=replay_buffer, 
                   actor=actor, 
                   critic=critic, 
                   environment=environment,
@@ -43,7 +45,10 @@ def run_sim(environment: env.Environment,
                   critic_training_step=critic_training_step,
                   actor_training_step=actor_training_step,
                   training_batch_size=training_batch_size)
+            paths.append(path)
       print("Sim Complete")
+
+      return paths
 
 def epoch(replay_buffer: buffer.ReplayBuffer, 
           actor: networks.ActorNetwork, 
@@ -55,9 +60,13 @@ def epoch(replay_buffer: buffer.ReplayBuffer,
           max_episodes: int,
           critic_training_step: int,
           actor_training_step: int,
-          training_batch_size: int) -> None:
+          training_batch_size: int) -> list[list[tuple[float, float]]]:
+      path = []
+
       position = starting_position
       print(f"Starting Position: {position}")
+
+      print(type(position))
 
       # Run the actor, load experiences into the replay buffer
       for ep in range(max_episodes + 1):
@@ -73,11 +82,12 @@ def epoch(replay_buffer: buffer.ReplayBuffer,
                   actor_training_step=actor_training_step,
                   training_batch_size=training_batch_size)
             position = new_position
+            path.append(tuple(new_position.detach().cpu().numpy()))
+
             in_bounds_bool = in_bounds.detach().item()
             if in_bounds_bool is False:
                   print(f"Entered invalid position, breaking epoch {ep}.")
                   break
-      print("exited loop")
 
 
 # For each episode ->

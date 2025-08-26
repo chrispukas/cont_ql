@@ -9,8 +9,9 @@ class Environment:
                  start_pos: tuple,
                  device: torch.device = torch.device("cpu")) -> None:
         self.env = torch.zeros(dim)
-        self.target_pos = torch.tensor(target_pos, device=device, dtype=torch.float32)
-        self.start_pos = torch.tensor(start_pos, device=device, dtype=torch.float32)
+        self.device = device
+        self.target_pos = torch.tensor(target_pos, device=device)
+        self.start_pos = torch.tensor(start_pos, device=device)
         self.shape = torch.tensor(dim, device=device, dtype=torch.float32)
 
     def set_weight(self, 
@@ -20,7 +21,7 @@ class Environment:
             print(f"Coordinate ({pos[0]}, {pos[1]}) is out of bounds!")
             return 0
         print(f"Setting weight with value: {weight}, at coordinate: ({pos[0]}, {pos[1]})")
-        self.env[pos] = torch.tensor(weight, device=self.env.device)
+        self.env[pos] = torch.tensor(weight, device=self.device)
 
         
     def get_reward(self, 
@@ -30,9 +31,11 @@ class Environment:
             penalty_scale = torch.tensor(-1)
             distance = self.get_distance_to_target(pos)
             penalty = (1 + distance) * penalty_scale
-            return penalty, False
+            return penalty
         # If in bounds, return True, if in a 'hole' (negative reward), therefore out of bounds
-        return self.env[pos[0]][pos[1]], True if self.env[pos[0]][pos[1]] >= 0 else False
+        val = self.env[pos[0]][pos[1]]
+        reward = torch.tensor(val if val >= 0 else -1, device=self.device)
+        return reward
 
 
     def set_weights(self, 

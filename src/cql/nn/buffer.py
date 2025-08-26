@@ -4,8 +4,9 @@ import random
 from collections import deque
 
 class ReplayBuffer:
-    def __init__(self, capacity=1000):
+    def __init__(self, capacity=1000, device: torch.device=torch.device("cpu")) -> None:
         self.buffer = deque(maxlen=capacity)
+        self.device = device
 
     def push(self, 
              state: torch.Tensor, 
@@ -27,10 +28,10 @@ class ReplayBuffer:
         batch = random.sample(self.buffer, batch_size)
         state, action, reward, new_state, result = zip(*batch)
         return (
-            torch.stack(state),
-            torch.stack(action),
-            torch.stack(reward),
-            torch.stack(new_state),
-            torch.stack(result))
+            torch.stack(state).to(self.device),
+            torch.stack(action).to(self.device),
+            torch.stack(reward).to(self.device),
+            torch.stack(new_state).to(self.device),
+            torch.stack(result).to(self.device))
     def __len__(self) -> int:
         return len(self.buffer)
