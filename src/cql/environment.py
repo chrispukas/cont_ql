@@ -1,48 +1,59 @@
+import torch
 import numpy as np
 
 
 class Environment:
-    def __init__(self, dim, goal):
-        self.env = np.zeros(dim)
-        self.goal = goal
+    def __init__(self, 
+                 dim: int, 
+                 target_pos: tuple,
+                 start_pos: tuple,
+                 device: torch.device = torch.device("cpu")) -> None:
+        self.env = torch.zeros(dim)
+        self.target_pos = torch.tensor(target_pos, device=device, dtype=torch.float32)
+        self.start_pos = torch.tensor(start_pos, device=device, dtype=torch.float32)
+        self.shape = torch.tensor(dim, device=device, dtype=torch.float32)
 
-    def set_weight(self, pos, weight):
-        x, y = pos
+    def set_weight(self, 
+                   pos: torch.tensor, 
+                   weight: float):
         if not self.check_if_in_bounds(pos):
             print(f"Coordinate ({pos[0]}, {pos[1]}) is out of bounds!")
             return 0
         print(f"Setting weight with value: {weight}, at coordinate: ({pos[0]}, {pos[1]})")
-        self.env[y, x] = weight
-    
-    def set_weights(self, weights):
+        self.env[pos] = torch.tensor(weight, device=self.env.device)
+
+        
+    def get_reward(self, 
+                   pos: torch.Tensor):
+        pos = pos.int()
+        if not self.check_if_in_bounds(pos):
+            penalty_scale = torch.tensor(-1)
+            distance = self.get_distance_to_target(pos)
+            penalty = (1 + distance) * penalty_scale
+            return penalty, False
+        # If in bounds, return True, if in a 'hole' (negative reward), therefore out of bounds
+        return self.env[pos[0]][pos[1]], True if self.env[pos[0]][pos[1]] >= 0 else False
+
+
+    def set_weights(self, 
+                    weights):
         pos, weight = zip(*weights)
         for i in range(len(pos)):
             self.set_weight(pos[i], weight[i])
 
-    def check_if_in_bounds(self, pos):
+    def check_if_in_bounds(self, 
+                           pos: torch.Tensor):
         x, y = pos
         w, h = self.get_size()
         return 0 <= x < w and 0 <= y < h
-    
-    def get_reward(self, pos):
-        x, y = np.round(pos).astype(int)
 
-        if not self.check_if_in_bounds((x, y)):
-            penalty_scale = -10
-            distance = self.get_distance_to_goal(pos)
-            penalty = (1 + distance) * penalty_scale
-            return penalty, False
-        # If in bounds, return True, if in a 'hole' (negative reward), therefore out of bounds
-        return self.env[y, x], True if self.env[y, x] >= 0 else False
-
-    def get_distance_to_goal(self, pos):
-        x, y = pos
-        gx, gy = self.goal
-        return ((x-gx)**2 + (y-gy)**2)**0.5
+    def get_distance_to_target(self, 
+                             pos: torch.Tensor):
+        diff = pos - self.target_pos
+        return (diff**2).sum().sqrt()
 
     def get_size(self):
-        height, width = self.env.shape
-        return width, height
+        return self.shape[1].item(), self.shape[0].item()
     
     def display(self):
         print(self.env)

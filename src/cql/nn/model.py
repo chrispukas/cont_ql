@@ -7,78 +7,72 @@ import cql.environment as env
 import cql.nn.pol.policy as pol
 import cql.nn.pol.loss as loss
 
-
-# ----------------
-# -- PARAMETERS --
-# ----------------
-
-max_epochs = 50000
-max_episodes = 4000
-
-training_batch_size = 200
-learning_rate = 0.02
-discount_factor = 0.99
-exploration_probability = 0.5
-exploration_discount = 0.9
-
-starting_pos = (4, 4)
-target_pos = (0, 0)
-env_dim = (5, 5)
-env_obs = [((1, 1), -9999), ((2, 1), -9999), ((1, 2), -9999), ((2, 2), -9999)]
-
-goal_radius = 0.2
-
-e = env.Environment(env_dim, target_pos)
-e.set_weights(env_obs)
-e.display()
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Currently using {device} device")
+import cql.nn.training as train
 
 
 def run_sim(environment: env.Environment, 
-            weights: torch.Tensor) -> None:
+            weights: torch.Tensor,
+            device: torch.device,
+            learning_rate: float,
+            discount_factor: float,
+            max_epochs: int,
+            max_episodes: int,
+            training_batch_size: int,
+            critic_training_step: int,
+            actor_training_step: int) -> list[tuple[float, float]]:
     # Tuple in the form: (state: tuple (x, y), action: tuple (dx, dy), reward: float, next_state: tuple (x + dx, y + dy), result: bool)
     replay_buffer = buffer.ReplayBuffer()
 
     # Initialize agents and dock to device
-    actor = networks.ActorNetwork().to(device)
-    critic = networks.CriticNetwork().to(device)
-    target_critic = networks.CriticNetwork().to(device)
+    actor = networks.ActorNetwork(device=device).to(device)
+    critic = networks.CriticNetwork(device=device, layer_width=training_batch_size).to(device)
 
     actor.optimizer = torch.optim.Adam(actor.parameters(), lr=learning_rate)
     critic.optimizer = torch.optim.Adam(critic.parameters(), lr=learning_rate)
-    target_critic.optimizer = torch.optim.Adam(target_critic.parameters(), lr=learning_rate)
 
     for iter in range(max_epochs):
         print(f"Current Epoch: {iter}")
         epoch(replay_buffer=replay_buffer, 
               actor=actor, 
               critic=critic, 
-              target_critic=target_critic,
               environment=environment,
-              weights=weights)
+              weights=weights,
+              discount_factor=discount_factor,
+              starting_position=environment.start_pos,
+              max_episodes=max_episodes,
+              critic_training_step=critic_training_step,
+              actor_training_step=actor_training_step,
+              training_batch_size=training_batch_size)
 
 def epoch(replay_buffer: buffer.ReplayBuffer, 
           actor: networks.ActorNetwork, 
           critic: networks.CriticNetwork, 
-          target_critic: networks.CriticNetwork,
           environment: env.Environment,
-          weights: torch.Tensor) -> None:
-
-    pos = torch.tensor(starting_pos, dtype=torch.float).to(device)
-    temp_exploration_probability = exploration_probability
+          weights: torch.Tensor,
+          discount_factor: float,
+          starting_position: torch.Tensor,
+          max_episodes: int,
+          critic_training_step: int,
+          actor_training_step: int,
+          training_batch_size: int) -> None:
+    position = starting_position
 
     # Run the actor, load experiences into the replay buffer
     for ep in range(max_episodes + 1):
-         position = torch.tensor(starting_pos, dtype=torch.float).to(device)
-         episode(replay_buffer=replay_buffer,
+         position, in_bounds = episode(replay_buffer=replay_buffer,
                  actor=actor,
                  critic=critic,
-                 target_critic=target_critic,
                  environment=environment,
                  position=position,
-                 weights=weights)
+                 weights=weights,
+                 discount_factor=discount_factor,
+                 curr_episode=ep,
+                 critic_training_step=critic_training_step,
+                 actor_training_step=actor_training_step,
+                 training_batch_size=training_batch_size)
+         if in_bounds is False:
+              print(f"Entered invalid position, breaking epoch {ep}.")
+              break
 
 
 
@@ -88,21 +82,41 @@ def epoch(replay_buffer: buffer.ReplayBuffer,
 def episode(replay_buffer: buffer.ReplayBuffer,
             actor: networks.ActorNetwork,
             critic: networks.CriticNetwork,
-            target_critic: networks.CriticNetwork,
             environment: env.Environment,
             position: torch.Tensor,
-            weights: torch.Tensor) -> None:
+            weights: torch.Tensor,
+            discount_factor: float,
+            curr_episode: int,
+            critic_training_step: int,
+            actor_training_step: int,
+            training_batch_size: int) -> torch.Tensor:
 
+            # Take actors prediction, and use for the current action
             predicted_action = actor(position)
             new_position = torch.add(predicted_action, position)
+            reward = pol.aggregate_rewards(environment, new_position, weights=weights).unsqueeze(0)
+            in_bounds = environment.check_if_in_bounds(new_position)
 
-            reward = pol.aggregate_rewards(environment, new_position, weights=weights)
-            print(reward)
+            print(f"{position} -> {new_position}, action: {predicted_action}")
 
-            # Commit to replay buffer for training, in the form of a tuple: (state, action, reward, new_state, result)
-            replay_buffer.push(position, predicted_action, reward, new_position, False)
-
+            # Commit to replay buffer for training, in the form of a tuple: (state, action, reward, new_state, valid)
+            replay_buffer.push(position.detach(), 
+                               predicted_action.detach(), 
+                               reward.detach(), 
+                               new_position.detach(), 
+                               in_bounds.detach(),)
             position = new_position
 
-weights = torch.tensor([1.0, 1.0, 10.0, 5.0], dtype=torch.float).to(device)
-run_sim(e, weights)
+            if curr_episode % critic_training_step == 0 and curr_episode > 0:
+                sample = replay_buffer.sample(training_batch_size)
+                if sample is None:
+                    return position
+                train.train_critic(sample, actor, critic, discount_factor)
+
+            if curr_episode % actor_training_step == 0 and curr_episode > 0:
+                 sample = replay_buffer.sample(training_batch_size)
+                 if sample is None:
+                     return position
+                 train.train_actor(sample, actor, critic, discount_factor)
+
+            return (position, in_bounds)

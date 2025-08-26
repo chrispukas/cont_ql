@@ -3,17 +3,20 @@ import cql.environment as env
 
 def aggregate_rewards(environment: env.Environment, 
                       position: torch.Tensor, 
-                      weights: torch.Tensor) -> float:
+                      weights: torch.Tensor) -> torch.Tensor:
     
     # Positional Observations
-    x_diff = position[0] - environment.goal[0]
-    y_diff = position[1] - environment.goal[1]
+    target_pos = torch.tensor(environment.target_pos, dtype=torch.float, device=position.device)
+    diff = position - target_pos
+    linear_diff = -(diff**2).sqrt()
 
     # Boundary Constraints
     boundary_constraint = -1 if environment.check_if_in_bounds(position) else 0
+    boundary_constraint_tensor = torch.tensor(boundary_constraint, dtype=torch.float).to(position.device)
 
     # Area Rewards
     area_reward = environment.get_reward(position)
 
-    agg_reward = x_diff * weights[0] + y_diff * weights[1] + boundary_constraint * weights[2] + area_reward * weights[3]
-    return agg_reward
+    print(f"Linear Diff: {linear_diff}, Area Reward: {area_reward}, Boundary Constraint: {boundary_constraint_tensor}")
+    stack = torch.stack([linear_diff[0], linear_diff[1], area_reward[0], boundary_constraint_tensor], dim=0)
+    return torch.dot(stack, weights)
