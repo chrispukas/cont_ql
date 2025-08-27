@@ -45,9 +45,8 @@ def run_sim(environment: env.Environment,
                   critic_training_step=critic_training_step,
                   actor_training_step=actor_training_step,
                   training_batch_size=training_batch_size)
-            paths.append(path)
-      print("Sim Complete")
-
+            if path is not None:
+                  paths.append(path)
       return paths
 
 def epoch(replay_buffer: buffer.ReplayBuffer, 
@@ -87,7 +86,11 @@ def epoch(replay_buffer: buffer.ReplayBuffer,
             in_bounds_bool = in_bounds.detach().item()
             if in_bounds_bool is False:
                   print(f"Entered invalid position, breaking epoch {ep}.")
-                  break
+                  return path
+            at_goal = environment.check_if_at_goal(position)
+
+
+      return path
 
 
 # For each episode ->

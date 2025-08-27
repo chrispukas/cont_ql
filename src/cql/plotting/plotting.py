@@ -6,18 +6,27 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 
-def plot_heatmap(paths: list[list[tuple[float, float]]], heatmap_dim: float, bins: int = 25, log_scale: bool = True):
-    trajectories = np.zeros((bins, bins))
+def plot_heatmap(paths: list[list[tuple[float, float]]], 
+                 heatmap_dim: float,
+                 bins: int = 25, 
+                 interpolation_step: float=0.2,
+                 log_scale: bool = True) -> None:
+    trajectories = np.ones((bins, bins))
 
     for path in paths:
-        if path is None:
+        if path is None or len(path) < 2:
             continue
-        for (x, y) in path:
-            x_int = int((x / heatmap_dim) * bins)
-            y_int = int((y / heatmap_dim) * bins)
-            if 0 <= x_int < bins and 0 <= y_int < bins:
-                trajectories[y_int, x_int] += 1
+        for (x0, y0), (x1, y1) in zip(path[:-1], path[1:]):
+            steps = np.linspace(0, 1, num=int(1 / interpolation_step))
+            for t in steps:
+                x = x0 + (x1 - x0) * t
+                y = y0 + (y1 - y0) * t
+                x_int = int((x / heatmap_dim) * bins)
+                y_int = int((y / heatmap_dim) * bins)
+                if 0 <= x_int < bins and 0 <= y_int < bins:
+                    trajectories[y_int, x_int] += 1
 
+    print(trajectories)
     plt.figure(figsize=(6,6))
     norm = LogNorm() if log_scale else None
     plt.imshow(trajectories, cmap='hot', interpolation='nearest', origin='lower',
