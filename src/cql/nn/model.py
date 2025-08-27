@@ -31,6 +31,7 @@ def run_sim(environment: env.Environment,
       critic.optimizer = torch.optim.Adam(critic.parameters(), lr=learning_rate)
       
       paths = []
+      epochs = []
 
       for iter in range(max_epochs):
             print(f"Current Epoch: {iter}")
@@ -47,7 +48,8 @@ def run_sim(environment: env.Environment,
                   training_batch_size=training_batch_size)
             if path is not None:
                   paths.append(path)
-      return paths
+                  epochs.append(iter)
+      return paths, epochs
 
 def epoch(replay_buffer: buffer.ReplayBuffer, 
           actor: networks.ActorNetwork, 
@@ -88,7 +90,9 @@ def epoch(replay_buffer: buffer.ReplayBuffer,
                   print(f"Entered invalid position, breaking epoch {ep}.")
                   return path
             at_goal = environment.check_if_at_goal(position)
-
+            if at_goal:
+                  print(f"Reached goal at episode {ep}!")
+                  return path
 
       return path
 

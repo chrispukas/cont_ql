@@ -36,3 +36,16 @@ def plot_heatmap(paths: list[list[tuple[float, float]]],
     plt.xlabel("X")
     plt.ylabel("Y")
     plt.show()
+
+def plot_epochs(x_vals, y_vals):
+    plt.plot(x_vals, np.log(np.array(y_vals)))
+
+    # Labels and title
+    plt.xlabel("# of Epochs")
+    plt.ylabel("# of Steps")
+    plt.title("Epoch-Steps Plot")
+    plt.legend()
+
+    # Show the graph
+    plt.grid(True)
+    plt.show()

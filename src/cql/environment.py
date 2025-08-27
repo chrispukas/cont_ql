@@ -51,7 +51,8 @@ class Environment:
         return 0 <= x < w and 0 <= y < h
     def check_if_at_goal(self,
                          pos: torch.Tensor) -> bool:
-        return torch.equal(pos, self.target_pos)
+        dist = self.get_distance_to_target(pos)
+        return dist < 0.1
 
     def get_distance_to_target(self, 
                              pos: torch.Tensor):
